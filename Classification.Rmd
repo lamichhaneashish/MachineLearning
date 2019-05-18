@@ -1,0 +1,274 @@
+---
+title: "Project 2 Classification"
+author: "Ashish Lamichhane"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Prediction of Income Level based on Age, Race, Sex and Education (and other predictors)
+
+#Reading Data into R
+
+Citation : Dua, D. and Graff, C. (2019). UCI Machine Learning Repository [http://archive.ics.uci.edu/ml]. Irvine, CA: University of California, School of Information and Computer Science.
+Link of the data : https://archive.ics.uci.edu/ml/datasets/Adult
+
+I used the parameter na.strings="NA" to tell R to fill missing cells with NA. This data is a bit messy because some things that should be factors, like Income or Sex or Race, are not. If we had not used the stringsAsFactors=FALSE parameter, strings like Occupation or Native country would be encoded as factors. I have made some changes to the data set after importing. For instance, I am converting Income to factor using as.factor().
+```{r}
+#reading the data into R. First row contains variable names and comma is separator.
+df <- read.table("adult.csv", na.strings = "NA", stringsAsFactors = FALSE, header = TRUE, strip.white = TRUE, fill = TRUE , sep = ",")
+```
+
+#Data Exploration Functions ( Before data cleaning)
+```{r}
+names(df) # lists the column names.
+head(df, n = 10) #see first 10 rows.
+tail(df, n = 5) # see last 5 rows.
+str(df) #finding the structure of the data set.
+summary(df) # summary() function provides a number of useful statistics including range, median, and mean.
+dim(df) #gives the row, col dimensions
+sapply(df, function(x) sum(is.na(x))) #checking # of NAs per column
+```
+
+#Data Cleaning Process
+The original data set had Income level as <=50K(0) and >50K(1). It was converted to 0 and 1 respectively because reading the input as character and converting it to a factor created 4 levels whereas, only 2 levels were needed. 
+Amelia library was installed to check the graph of missing values vs observed values. We saw that there was only 1% missing values. Work_Class and Occupation had alot of missing values. We will discard those columns. We will also not use Education because there is another column called Education_num that specifies number to those columns. Similary, Marital_status, Relationship, Occupation is also discarded becuase those are character inputs and couldn't be used for logistic regression. 
+By using the subset function we are selecting only releveant columns ( 9 columns). Sex and Race are both converted to contain numeric values rather than characters.
+The correlation between numeric columns is then checked and the findCorrelation() function suggested that there was no correlation among those columns.
+```{r}
+library(Amelia)
+library(caret)
+missmap(df, main = "Missing values vs observed")
+
+data <- subset(df,select=c(1,5,9:13,15))
+attach(data)
+
+sapply(data, function(x) sum(is.na(x))) #double checking # of NAs per column
+data$Income <- as.factor(data$Income) # we are predicting the income so it is converted to a factor.
+levels(data$Income) #checking levels.
+contrasts(data$Income) #checking encodings.
+#Converting Sex to a numeric data.
+data$Sex <- ifelse(data$Sex == "Male",1,0)
+## Converting Race to numeric data as well.
+raceType <- c("Amer-Indian-Eskimo" = 0, "Asian-Pac-Islander" = 1, "Black" = 2, "White" = 3, "Other" = 4)
+data$Race <- as.numeric(raceType[data$Race])
+# The findCorrelation() function suggests that there is no co-relation among any of the columns tested.
+corMatrix <- cor(data[,c(1:7)])
+findCorrelation(corMatrix, cutoff=0.5, verbose=TRUE)
+```
+
+#Data Exploration Functions ( Applied on selected subset of the original data)
+```{r}
+names(data) # lists the column names.
+head(data, n = 10) #see first 10 rows.
+tail(data, n = 5) # see last 5 rows.
+str(data) #finding the structure of the data set.
+summary(data) # summary() function provides a number of useful statistics including range, median, and mean.
+dim(data) #gives the row, col dimensions
+```
+
+#Visual Data Exploration
+```{r}
+#Plotting appearances ( or count ) of two Income Levels.
+counts <- table(data$Income)
+barplot(counts, horiz=TRUE, names=c("<=50K", ">50K"), col=c("seagreen","wheat"), ylab="Income Level", xlab="Frequency")
+
+# Scatter plot for Race and Hours worked per week. 0 to 4 suggests different type of race. Here
+#"Amer-Indian-Eskimo" = 0
+#"Asian-Pac-Islander" = 1 
+#"Black" = 2 
+#"White" = 3 
+#"Other" = 4
+plot(data$Race, df$Hours_per_week, pch='+', cex=0.75, col="blue", xlab="Race", ylab="Education Num")
+
+#plotting Income (qualitative) against Age and Education Num (both quantitatives)
+par(mfrow=c(1,2))
+cdplot(data$Income~Age, col=c("snow", "slategray"))
+cdplot(data$Income~Education_num, col = c("blue","red"))
+```
+
+#Logistic Regression 
+
+##Divide into train and test (Using the same sample for all algorithms).
+Features selected are :
+a. Age b. Education_num c.Race d.Sex e.Capital_gain f.Capital_loss
+g. Hours_per_week h. Income
+The reason for selecting those features is as follows:
+- Only selecting numeric data ( or data converted to numeric after importing).
+- There is little to no correlation between the selected columns.
+- I am predicting Income Level based on Age, Sex, Race, Education and the # of hours they work per week.
+
+```{r}
+# Randomly sample the data set to let 2/3 be training and 1/3 test.
+set.seed(1958)  # setting a seed gets the same results every time
+i <- sample(1: nrow(data),0.67 * nrow(data), replace = TRUE)
+```
+
+```{r}
+#Creating train and test for logistic regression.
+logistic_train <- data[i,]
+logistic_test <- data[-i,]
+```
+
+Key points:
+-I got the error message : Warning message: glm.fit: fitted probabilities numerically 0 or 1 occurred
+This means that the data is perfectly or nearly perfectly linearly separable and the error occured due to the inability to maximize the likelihood which already has separated the data perfectly.
+-Since, null deviance considers the intercept alone, and the residual deviance considers all predictors. The drop in the value of residual deviance indicates that our predictors are good predictors.
+-82% accuracy is achieved.
+- p-value is good for all predictors except Race.
+
+##Build the model 
+```{r}
+logistic_model <- glm(Income~. ,data=logistic_train, family=binomial)
+summary(logistic_model)
+probs <- predict(logistic_model, newdata=logistic_test, type="response")
+pred <- ifelse(probs>0.5, 1, 0)
+acc1 <- mean(pred==logistic_test$Income)
+print(paste("Logistic model accuracy = ", acc1))
+table(pred, logistic_test$Income)
+```
+
+#Additional Metrics : Confusion Matrix
+Accuracy for logistic regression is 0.8222   
+Confusion Matrix ::
+          Reference
+Prediction     1     0
+         0 17923  3349
+         1  1092  2617
+         
+Sensitivity calculated as 0.9426
+Specificity calculated as 0.4378  
+Kappa calculated as 0.4381. The Kappa value sugessts that it is a "moderate agreement".
+         
+```{r}
+library(caret)
+#Confusion Matrix, Sensitivity, Specificity, Kappa calculation, Accuracy and Error Rate calculation.
+confusionMatrix(
+  factor(pred, levels = 0:1),
+  factor(logistic_test$Income, levels = 0:1)
+)
+```
+
+#Additional Metrics: ROCR
+ROC curve is the visualization of the True Positive/ False Positive rate. We would want to see the curve shooting up right from the origin. Auc (Area Under the Curve) is calculated as 0.8424941
+1 would have been a perfect classifier but, 0.84 is a fair auc.
+```{r}
+library(ROCR)
+pr <- prediction(probs, logistic_test$Income)
+# TPR = sensitivity, FPR=specificity
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+auc <- performance(pr,measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
+
+
+The next algorithm that I am going to try is kNN.
+
+#kNN
+
+## Divide into train and test
+```{r}
+knn_train <- data[i,c(1:7)] # train data
+knn_test <- data[-i,c(1:7)] # test data
+knn_trainlevel <-data[i,8] # train level 
+knn_testlevel<-data[-i,8] # test level
+```
+
+## Classify
+The knn() function uses Euclidean distance to find the k nearest neighbors. Classification is decided by majority vote with ties broken at random. Using an odd k can avoid some ties. I am using k = 3.
+
+```{r}
+library(class)
+knn_pred <- knn(knn_train,knn_test,cl = knn_trainlevel,k=3)
+```
+
+## Compute Accuracy
+```{r}
+knn_results <- knn_pred == knn_testlevel
+knn_acc <- length(which(knn_results == TRUE)) / length(knn_results)
+print(paste("kNN accuracy = ", knn_acc))
+```
+
+There is slight increase in the accuracy but its not so significant. 
+Logistic Regression accuray was 0.822 whereas kNN accuracy on unscaled data is 0.8237. Since, I donot see huge jump in accuracy I will try to normalize the data and run kNN on normalized data. 
+
+## Trying to scale the data
+Means and standard deviations of predictors are calculated and used as center and scale respectively for the train and test data.
+```{r}
+#normalize data
+means <- sapply(knn_train, mean)
+stdvs <- sapply(knn_train, sd)
+scaled_train <- scale(knn_train,center = means,scale = stdvs)
+scaled_test <- scale(knn_test, center = means, scale = stdvs)
+```
+
+##kNN on scaled data.
+Unfortunately, scaling the data set didn't improve the accuracy rate. Rather, we have seen ~ 2% decrease in the accuracy rate.
+Acccuracy for scaled kNN classification is 0.80 only.
+```{r}
+scaled_pred <- knn(scaled_train,scaled_test,cl = knn_trainlevel, k = 3)
+scaledknn_results <- scaled_pred == knn_testlevel
+scaledknn_acc <- length(which(scaledknn_results == TRUE)) / length(scaledknn_results) 
+print(paste("Scaled kNN accuracy = ", scaledknn_acc))
+```
+
+Next, I am going to try Naive Bayes algorithm to see if it improves the accuracy. 
+
+#Naive Bayes 
+
+I am using the same sample size but creating new test and train data for comparison. I am also converting Race into factor. 
+
+# Divide into train and test.
+```{r}
+nb_train <- data[i,]
+nb_test <- data[-i,]
+nb_train$Race <- as.factor(nb_train$Race) # Race is converted to factor in train data.
+nb_test$Race <- as.factor(nb_test$Race) # Race is converted to factor in test data.
+```
+
+## Build the naive bayes classifier
+
+The prior for Income Level, called A-priori above, is .75 <=50K and .24 >50K. The likelihood data is shown in the output as conditional probabilities. For discrete variables like Sex and Race, there is a breakdown by income <=50K/>50K for each possible value of the attribute. For continuous data like age, education_num we are given the mean and standard deviation for the two classes. 
+
+```{r}
+library(e1071)
+naive_bayes <- naiveBayes(nb_train$Income~.,data = nb_train)
+naive_bayes
+```
+
+There is even more drop in the accuracy. Accuracy of only 0.789 is achieved.NB has higher bias but lower variance than logistic regression so it didn't do well with the data. NB also works better with smaller data set.
+
+## Evaluate on the test data.
+```{r}
+nb_pred <- predict(naive_bayes, newdata=nb_test, type="class")
+table(nb_pred, nb_test$Income)
+nb_acc <- mean(nb_pred==nb_test$Income)
+print(paste("Naive Bayes accuracy = ", nb_acc))
+```
+
+## Additional Metric : Confusion Matrix on NB
+Accuracy for naive bayes is 0.7899
+Confusion Matrix ::
+          Reference
+Prediction     0     1
+         0 18005  4238
+         1  1010  1728
+         
+Sensitivity calculated as 0.9469 
+Specificity calculated as 0.2896      
+Kappa calculated as 0.2904. The Kappa value sugessts that it is a "fair agreement". 
+P-value is < 2.2e-16 which is good.
+```{r}
+confusionMatrix(nb_pred, nb_test$Income, positive="0")
+```
+
+
+# Analysis of the best algorithm:
+
+The algorithm that was able to achieve highest accuracy in this data set was logistic regression. The reason for logistic regression to outperform both kNN and Naive Bayes is that the classes were linearly separable. For NB, the accuracy is the lowest. The reason for the lowest accuracy could be NB's indpendence assumption. NB also has high bias and low variance than logistic regression. For kNN, in general, it is better to a good idea to scale the variables for better distance calculation but in my case, it performed worse than unscaled kNN classification.
+
+# What was learnt from the data 
+
+Our best model, logisitc model, suggests that all of our variables were good predictors. The income level is affected by Age, Sex, Race altogether. The model suggested that 71% people had an income level of less than 50K. The model takes all factors into consideration rather than a single variable.The response is determined by a linear combination of predictors. The linear models for classification create a linear decision boundary that is a combination of the all predictors. Based on our linear model, gender had a huge impact on the income level. It is then followed by Education_num ( represents the education level and years of education as a number) which is followed by Race. Capital_gain and Capital_loss didn't have significant impact on the income level.
