@@ -1,0 +1,332 @@
+---
+title: "Project 2 Regression"
+author: "Ashish Lamichhane"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+# Prediction of % of Silica on the Iron Ore Concentrate
+
+#Link of the data :
+https://www.kaggle.com/edumagalhaes/quality-prediction-in-a-mining-process
+
+#Background information on data:
+The main goal is to use this data to predict how much impurity is in the ore concentrate. As this impurity is measured every hour, if we can predict how much silica (impurity) is in the ore concentrate, we can help the engineers, giving them early information to take actions (empowering!). Hence, they will be able to take corrective actions in advance (reduce impurity, if it is the case) and also help the environment (reducing the amount of ore that goes to tailings as you reduce silica in the ore concentrate).
+The first column shows time and date range (from march of 2017 until september of 2017). Some columns were sampled every 20 second. Others were sampled on a hourly base.
+The second and third columns are quality measures of the iron ore pulp right before it is fed into the flotation plant. Column 4 until column 8 are the most important variables that impact in the ore quality in the end of the process. From column 9 until column 22, we can see process data (level and air flow inside the flotation columns, which also impact in ore quality. The last two columns are the final iron ore pulp quality measurement from the lab. Target is to predict the last column, which is the % of silica in the iron ore concentrate.
+
+####Citation : Oliveira, Eduardo Magalhães. Quality Prediction in Mining Process. Kaggle, 6 Dec. 2017,www.kaggle.com/edumagalhaes/quality-prediction-in-a-mining-process.
+
+
+I used the parameter na.strings="NA" to tell R to fill missing cells with NA. I am using stringsAsFactors = FALSE otherwise,  columns such as X. Silica.Feed or X.Iron.Feed could be read as factors but we want them as numbers. I have used dec = "," because the number in the table were separated by ",". The original data set has almost 738k instances. I am reducing the data set to 100k because my laptop was not able to handle 738k instances for some algorithms.
+
+```{r}
+df <- read.csv("MiningProcess_Flotation_Plant_Database.csv", na.strings = "NA",stringsAsFactors = FALSE, dec = "," , header = TRUE)
+df <- df[sample(nrow(df), 100000, replace = FALSE), ]
+```
+
+
+#Data Exploration Functions ( Before data cleaning)
+```{r}
+names(df) # lists the column names.
+head(df, n = 5) #see first 10 rows.
+tail(df, n = 5) # see last 5 rows.
+str(df) #finding the structure of the data set.
+summary(df) # summary() function provides a number of useful statistics including range, median, and mean.
+dim(df) #gives the row, col dimensions
+```
+
+#Data Cleaning Process
+I used is.na(x) function to check for count of NAs per column. It looks like the data set has no NA values. 
+The first column contains the date and it is removed because it is just for tracking purpose and I do not need time stamp in this data set. 
+Using the coorelation function we can see that there are alot of columns that have coorelation greater than 50. So, for column 8 through 14 I am going to take the average of those columns and make a separate column that contains the average instead of those 7 columns. So, two new columns created are mean_airflow and mean_level.
+Then I am only selecting the column of our concern. I successfully removed 14 columns and replaced them with two columns that represents average of those columns.
+I ran correlation to see if there is any correlation between the columns again. It turns out that column 1 and 4 still had correlation with column 7 and 2 respectively. Column 1 and 2 represents the amount of Iron and Silica feed prior the to the mining process so its okay to have a correlation. In short, I have not removed any more columns. 
+```{r}
+library(caret)
+sapply(df, function(x) sum(is.na(x))) #checking # of NAs per column
+
+#removing first column.
+
+df <- df[,-1]
+
+#looking for corelations
+corMatrix <- cor(df[])
+findCorrelation(corMatrix, cutoff=0.5, verbose=TRUE)
+ 
+#making new columns : df$mean_airflow and df$mean_level
+df$mean_airflow <- rowMeans(df[c('Flotation.Column.01.Air.Flow', 'Flotation.Column.02.Air.Flow','Flotation.Column.03.Air.Flow','Flotation.Column.04.Air.Flow','Flotation.Column.05.Air.Flow','Flotation.Column.06.Air.Flow','Flotation.Column.07.Air.Flow')])
+length(df$mean_airflow) # checking to see that the acutal number of rows is preserved.
+
+df$mean_level <- rowMeans(df[c('Flotation.Column.01.Level', 'Flotation.Column.02.Level','Flotation.Column.03.Level','Flotation.Column.04.Level','Flotation.Column.05.Level','Flotation.Column.06.Level','Flotation.Column.07.Level')])
+length(df$mean_level)
+
+# only selecting the columns of our concern 
+df <- df[,c(1:7,22:25)]
+
+#looking for correlation again
+corMatrix <- cor(df[,c(1:8,10,11)])
+findCorrelation(corMatrix, cutoff=0.5, verbose=TRUE)
+```
+
+
+#Data Exploration Functions ( Applied on selected subset of the original data)
+```{r}
+names(df) # lists the column names.
+head(df, n = 10) #see first 10 rows.
+tail(df, n = 5) # see last 5 rows.
+str(df) #finding the structure of the data set.
+summary(df) # summary() function provides a number of useful statistics including range, median, and mean.
+dim(df) #gives the row, col dimensions
+```
+
+#Visual Data Exploration
+```{r}
+#Source of some ggplot codes are : https://rstudio-pubs-static.s3.amazonaws.com/278745_60156813ccd2466ea4625725dcdf7cdd.html
+
+par = par(mfrow=c(2,3))
+#Spread of mean_airflow
+ggplot(df,aes(df[,10])) + geom_histogram(binwidth = 2) + xlab(colnames(df)[10])
+
+#Spread of Amina.Flow
+ggplot(df,aes(df[,4])) + geom_histogram(binwidth = 2) + xlab(colnames(df)[4])
+
+#Scatter plot of Silica Concentrate and Iron Feed
+plot(df$X..Silica.Concentrate~df$X..Iron.Feed, pch = '*', col = "Blue",xlab = "Iron Feed", ylab = "Silica Concentration")
+# Scatter plot of Silica Concentration and Silica Feed.
+plot(df$X..Silica.Concentrate~df$X..Silica.Feed, pch='+', col="Red", xlab="Silica Feed", ylab="Silica Concentrate")
+
+#Correlation between DEWP concentration and TEMP
+print(ggplot(df, aes(df[,4], df[,7])) + geom_point() + xlab(colnames(df)[4]) + ylab(colnames(df)[7]))
+```
+
+#Linear Regression
+
+##Divide into train and test (Using the same sample for all algorithms).
+Predictors selected are :
+ [1] "X..Iron.Feed"         
+ [2] "X..Silica.Feed"       
+ [3] "Starch.Flow"          
+ [4] "Amina.Flow"           
+ [5] "Ore.Pulp.Flow"        
+ [6] "Ore.Pulp.pH"          
+ [7] "Ore.Pulp.Density"     
+ [8] "X..Iron.Concentrate"  
+ [9] "mean_airflow"         
+ [10] "mean_level" 
+ 
+The variable to be predicted is :
+ [1] "X..Silica.Concentrate"
+The reason for selecting those features is as follows:
+- mean_airflow is the average of all columns from column 8 to 14 in original data set.
+- mean_level is the average of all columns from column 15 to 21 in original data set.
+- After some understanding of the domain knowledge, it seems fair to include every column in the data set for prediction.
+- I am predicting Silica Concentration based on all columns. 
+
+```{r}
+set.seed(1234)  # setting a seed gets the same results every time
+i <- sample(1: nrow(df),0.80 * nrow(df), replace = TRUE)
+```
+
+```{r}
+#Creating train and test split for linear regression
+linear_train <- df[i,]
+linear_test <- df[-i,]
+```
+
+Key Points:
+- p-value was low for all columns except starch.flow, ore.pulp.ph and ore.pulp.density.
+- RSE was calculated as 0.643. R-Square was calculated as 0.6712. R-squared tells us that aproximately 67% of the variance in the model can be explained by our predictor which is not that bad.The residual standard error, RSE, is in units of y. In this case our RSE was 0.643, so the average error of the model was about aproximately .64 percentage. This statistic was calculated on 79989 degrees of freedom: we had 80000 data points minus 11 predictors. 
+- F-statistic: 1.633e+04 which is far from 0 so is good. It provides evidence against the null hypothesis.
+
+## Building linear model on train data
+```{r}
+set.seed(1234)
+linear_model <- lm(X..Silica.Concentrate~., data = linear_train)
+summary(linear_model)
+par (mfrow = c(2,2)) # 2*2 grid.
+plot(linear_model)
+```
+
+Analysis of the plot : 
+- Residual vs Fitted : Although the red line doesn't align with the dotted white line, it is fairly horizontal as the fitted values increases. 
+- Normal Q-Q: The residuals follows the dotted line (except in the beginning). It means that residuals are normally distributed.
+- Scale-Location: We want to see a fairly horizontal red line with the residuals distributed equally around it. The plot suggests that data is homoscedastic.
+- Residuals vs Leverage : Outliers is unusual y value and leverage is unusual x value. The red line is fairly horizontal and follows the dotted white line.
+
+
+## Predict on test data
+```{r}
+linear_pred <- predict(linear_model,newdata = linear_test)
+```
+
+## Metrics for test set evaluation
+One of the metrics that is used to evalute the linear regression is correlation. The correlation for the linear model is calculated as 0.82. The  mse and rmse are calculated as 0.416 and 0.645 respectively. The MSE tells that the model is off by 0.42% (of silica concentration). 
+```{r}
+#finding correlation
+linear_cor <- cor(linear_pred,linear_test$X..Silica.Concentrate)
+#finding mse - mean square error
+linear_mse <- mean((linear_pred-linear_test$X..Silica.Concentrate)^2)
+linear_rmse <- sqrt(linear_mse)
+print(paste("MSE and RMSE for linear model :",linear_mse, linear_rmse))
+```
+
+# Ridge Regression
+Using the same divide (80/20) for train and test.
+```{r}
+library(glmnet)
+x <- model.matrix(X..Silica.Concentrate~., df)
+y <- df$X..Silica.Concentrate
+train_x <- x[i,]
+train_y <- y[i]
+test_x <- x[-i,]
+test_y <- y[-i]
+set.seed(1234)
+#build a ridge regression model.
+rm<- glmnet(train_x,train_y,alpha=0)
+#use cv to see which lambda is best
+cv_results <- cv.glmnet(train_x,train_y,alpha =0)
+plot(cv_results)
+l <- cv_results$lambda.min
+
+#get data for best lambda, which is the 100th
+#as determined by looking at rm$lamda
+
+pred <- predict(rm,s=l,newx = test_x)
+mse <- mean((pred-test_y)^2)
+rmse <-sqrt(mse)
+coef2 <- coef(rm)[,100]
+ridge_cor <- cor(pred,test_y)
+print(paste("MSE and RMSE for ridge regression model :",mse, rmse))
+```
+
+
+#Compare mse and coefficients 
+```{r}
+print(paste("MSE for linear regression = ", linear_mse))
+```
+
+```{r}
+coef(linear_model)
+```
+
+```{r}
+print(paste("MSE for ridge regression = ",mse))
+```
+
+```{r}
+coef2
+```
+
+The mean squared error as well as RMSE remains almost same  for ridge regression model and linear regression model.
+
+
+#kNN
+Key Points:
+The same train and test is used as in linear and ridge regression model. kNN is an instance based learning and doesn't create a model. So, it makes on assumption about the shape of the data. The goal is to maximize the correlation and minimize the mse. I am choosing k=3 and running the kNN in unscaled data set first.
+
+```{r}
+library(caret)
+library(DMwR)
+fit <- knnreg(linear_train[,c(1:8,10,11)],linear_train[,9], k = 3)
+predictions <- predict(fit,linear_test[,c(1:8,10,11)])
+cor(predictions,linear_test$X..Silica.Concentrate)
+```
+
+#Additional Metrices
+```{r}
+knn_mse <- mean((predictions - linear_test$X..Silica.Concentrate)^2)
+knn_rmse <- sqrt(knn_mse)
+print(paste("MSE and RMSE for kNN regression :",knn_mse, knn_rmse))
+```
+
+The correlation obtained is only 0.43, which is way worse than linear and ridge regression models. The MSE is also worse than both previous models. kNN suggests that it is off by 1.21% (silica concentration). However, it is true that know that clustering algorithm works better on a scaled data. So, the next step will be to scale the data.
+
+#Scaling the data
+```{r}
+scaled_data <- scale(df[]) # using scale function to scale the data set. 
+df <- data.frame(scaled_data) 
+train <- df[i,] # selecting train (scaled)
+test <- df[-i,] #selecting test (scaled)
+fit <- knnreg(train[,c(1:8,10,11)],train[,9], k =3) #selecting k=3 and running kNN regression
+p <- predict(fit, test[,c(1:8,10,11)]) # predicting..
+knn_3 <- cor(p,test$X..Silica.Concentrate) # finding the coorelation
+mse <- mean((p-test$X..Silica.Concentrate)^2) # finding mse.
+rmse <- sqrt(mse) # finding rmse for comaprison
+mse
+rmse
+```
+
+WOW! kNN performed way better on a scaled data set. The correlation obtained after scaling the data is 0.96. The MSE and RMSE obtained is 0.06 and 0.24 respectively. This is the result for kNN with k=3. Now, lets try different values of k and see which k value is the best. I am trying odd k values in between 1 and 39. 
+
+### Finding the best k
+
+Try various values of k and plot the results. 
+```{r}
+cor_k <- rep(0, 20)
+mse_k <- rep(0, 20)
+i <- 1
+for (k in seq(1, 39, 2)){
+  fit_k <- knnreg(train[,c(1:8,10,11)],train[,9], k=k)
+  pred_k <- predict(fit_k, test[,c(1:8,10,11)])
+  cor_k[i] <- cor(pred_k, test$X..Silica.Concentrate)
+  mse_k[i] <- mean((pred_k - test$X..Silica.Concentrate)^2)
+  print(paste("k=", k, cor_k[i], mse_k[i]))
+  i <- i + 1
+}
+plot(1:20, cor_k, lwd=2, col='red', ylab="", yaxt='n')
+par(new=TRUE)
+plot(1:20, mse_k, lwd=2, col='blue', labels=FALSE, ylab="", yaxt='n')
+```
+Turns out that k=1 is the best with correlation of .9697 and mse of 0.0604. The correlation seems to decrease as the k value increases.
+
+[1] "k= 1 0.96978118940472 0.0603883607842249"
+[1] "k= 3 0.966998994607761 0.0651318680136435"
+[1] "k= 5 0.963435215367703 0.0718097971825848"
+[1] "k= 7 0.959881924782445 0.078588035972286"
+[1] "k= 9 0.956705874747346 0.0846819704473681"
+[1] "k= 11 0.95393788461106 0.0900399527780337"
+[1] "k= 13 0.951064128754392 0.0956365824177667"
+[1] "k= 15 0.948274327484662 0.101085551028143"
+[1] "k= 17 0.945594511950433 0.106326912963887"
+[1] "k= 19 0.943076988091601 0.111284952162709"
+[1] "k= 21 0.940433499058742 0.116422531268831"
+[1] "k= 23 0.938164275270582 0.120891162198145"
+[1] "k= 25 0.936123820664801 0.124924295724734"
+[1] "k= 27 0.933993506124818 0.12908199786376"
+[1] "k= 29 0.932141253562812 0.132726204798412"
+[1] "k= 31 0.930382059639316 0.136222971768213"
+[1] "k= 33 0.928651835189829 0.1396407635996"
+[1] "k= 35 0.926914297078217 0.143056203571157"
+[1] "k= 37 0.925293111584829 0.146286862595958"
+[1] "k= 39 0.923887490729068 0.149085124090067"
+
+# kNN for k=1
+```{r}
+fit_1 <- knnreg(train[,c(1:8,10,11)],train[,9], k=1)
+predictions_1 <- predict(fit_1,test[,c(1:8,10,11)])
+cor_1 <- cor(predictions_1,test$X..Silica.Concentrate)
+mse_1 <- mean((predictions_1-test$X..Silica.Concentrate)^2)
+```
+
+# Comparing co-relation and MSE for linear, ridge and kNN regression
+
+```{r}
+print(paste("Co-relation and MSE for linear regreesion are : ",linear_mse, linear_cor))
+print(paste("Co-relation and MSE for ridge regression are: ",ridge_cor, mse ))
+print(paste("Co-relation and MSE for kNN where k=3 (initial)",knn_3,knn_mse ))
+print(paste("Co-relation and MSE for kNN where k=1 (best)", cor_1,mse_1))
+```
+
+# Analysis of the best algorithm:
+The algorithm that was able to obtain the highest correlation and lowset mean squared error was kNN with k=1. kNN doesn not build a model of the data as it is an example of an "instance-based" learning. kNN was able to get the best correlation as compared to linear and ridge regression because the later algorithms assumes a linear relationship between predictors and target. (However, linear doesn't mean straight)
+On the other hand, kNN makes no assumption about the shape of the data. Also, the data is scaled so it was able to preform better.
+
+
+# What was learnt from the data 
+```{r}
+plot(predictions_1,test$X..Silica.Concentrate)
+```
+
+kNN is not an easy algorithm to interpret. The plot above, of the predicted % of Silica and acutal data from test data set, further confirms the good correlation between test and prediction. It can be concluded that the predictors that I choose for the model (not technically a model because kNN doesn't create one) were good predictors. In other words, % of silica in the iron ore concentrate is affected by all ten predictors. Looking at the linear regression, it can be further predicted that Iron Concentrate, mean_airflow, mean_level and Starch Flow had negative effect on the % of Silica. All other columns had positive effect on the target variable. However, it has to be taken into the consideration that the linear model was assuming linear relationship between those predictors and the target. 
+
